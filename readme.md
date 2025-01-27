@@ -143,6 +143,8 @@ L &= \frac{1}{2}\rho v^2 C_L A
 \end{aligned}
 $$
 
+
+
 下图为采用本文策略所得到的返回曲线
 
 <p align="center">
