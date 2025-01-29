@@ -36,11 +36,12 @@ def equations(t, y):
     # 自转角速度
     omega = 2 * np.pi / 21600  # rad/s
     a_coriolis_theta = -2 * omega * vr  # 科里奥利加速度的角向分量
+    a_coriolis_r = 2 * omega * vtheta    # 新增径向分量
     a_centrifugal_r = omega**2 * r  # 离心加速度的径向分量
 
     # 径向加速度
     drdt = vr
-    dvrdt = a_grav_r + a_drag_r + a_lift_r + a_centrifugal_r + vtheta**2 / r
+    dvrdt = a_grav_r + a_drag_r + a_lift_r + a_centrifugal_r + vtheta**2 / r + a_coriolis_r
 
     # 角速度变化率
     dthetadt = vtheta / r
