@@ -168,99 +168,30 @@ def main():
 
     print("#################大气内攻角控制开始#################")
 
-
-    # inter_erro = 0
-
-    # while True:
-
-    #     ### 轨迹预测
-
-    #     # 获取航天器位置和速度（相对于惯性参考系）
-    #     position = vessel.position(body.reference_frame)
-    #     velocity = vessel.velocity(body.reference_frame)
-
-    #     # 进行坐标变换
-    #     position_in_ksc_axis = change_xyz(position)
-    #     velocity_in_ksc_axis = change_xyz(velocity)
-
-    #     # 计算星体的旋转角速度矢量（绕Z轴，指向北极）
-    #     rotation_period = body.rotational_period  # 星体自转周期
-    #     angular_velocity_magnitude = 2 * np.pi / rotation_period  # 自转角速度
-    #     angular_velocity = np.array([0, 0, angular_velocity_magnitude])  # 假设自转轴为Z轴
-
-    #     # 计算旋转速度矢量： ω × r
-    #     rotation_velocity_vector = np.cross(angular_velocity, position_in_ksc_axis)
-
-    #     # 计算科里奥利修正速度： 2 * (ω × v_rot)
-    #     coriolis_velocity = 2 * np.cross(angular_velocity, velocity_in_ksc_axis)
-
-    #     # 计算惯性参考系的速度
-    #     inertial_velocity = velocity_in_ksc_axis + rotation_velocity_vector + coriolis_velocity
-
-    #     # 计算最终落点
-    #     final_theat = simulate_final_theta(position_in_ksc_axis, inertial_velocity)[0]
-
-
-    #     # # 控制策略
-    #     # pid_change_angle = 30*final_theat + 0.01*inter_erro
-
-    #     pid_change_angle = 0.8*final_theat + 0.05*inter_erro
-    #     pid_change_angle = max(min(pid_change_angle, 5), -5)
-
-    #     inter_erro = final_theat + inter_erro
-    #     if inter_erro > 50:
-    #         inter_erro = 50
-        
-        
-
-    #     control_gong_angle = inertial_gong_angle - pid_change_angle 
-        
-
-    #     print(f"当前落点误差极角: {np.degrees(final_theat):.2f}°")
-    #     print(f"当前攻角pid控制值: {(pid_change_angle):.2f}°")
-    #     print(f"当前攻角控制值: {(control_gong_angle):.2f}°")
-    #     print()
-
-
-    #     vessel.auto_pilot.target_pitch_and_heading(180-control_gong_angle, 90)
-
-    #     # target_roll_degrees = 45  # 45 度滚转
-    #     # vessel.auto_pilot.target_roll = np.radians(target_roll_degrees)
-
-    #     time.sleep(1)
-
-
-    #     # 如果高度超过限制，则跳出程序
-    #     if np.linalg.norm(position) < 25_000 + 600_000 or final_theat > 0:
-    #         print("高空攻角控制阶段结束")
-
-    #         break
-
-    # vessel.auto_pilot.disengage()
-
-    # vessel.auto_pilot.engage()  # 启动自动驾驶
-    # target_location = (0.0972, -74.5577)  # KSC 纬度, 经度
-    # trajectory_data = predictor_corrector_control(conn, vessel, body, target_location)
+    vessel.auto_pilot.engage()  # 启动自动驾驶
+    target_location = (-0.0972, -74.5577)  # KSC 纬度, 经度
+    trajectory_data = predictor_corrector_control(conn, vessel, body, target_location)
 
     # 自由落体段
-    # vessel.control.roll = 0
-    # vessel.control.sas = True
-    # vessel.control.rcs = False
+    vessel.control.roll = 0
+    vessel.control.sas = True
+    vessel.control.rcs = False
 
     print("#################大气内攻角控制结束#################")
     #############################################################################
     # 第三次落点预报
-
+    time_time = 0
     while True:
         position = vessel.position(body.reference_frame)
         
         # 如果高度超过限制，则跳出程序
-        if np.linalg.norm(position) < 5_000 + 600_000:
+        if np.linalg.norm(position) < 5_000 + 600_000 and time_time == 0:
             print("开启降落伞")
             print("着陆制导结束")
 
             vessel.control.activate_next_stage()  # 执行一级分离
             vessel.control.activate_next_stage()  # 执行一级分离
+            time_time = time_time + 1
 
 
         if vessel.flight().surface_altitude < 100:
@@ -270,7 +201,7 @@ def main():
             S_remaining = calculate_distance(body, lat, lon, 0.0972, -74.5577)
 
             print(f"落点经度：{lat}°  落点纬度：{lon}° |距离目标点还有 {S_remaining/1000:.1f}km")
-        break
+            break
 
 
    

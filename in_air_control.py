@@ -4,6 +4,24 @@ import math
 import krpc
 
 
+import threading
+import csv
+import os
+
+# 定义 CSV 文件名
+CSV_FILENAME = "./src/data_log.csv"
+
+def save_data_async(pos):
+    """异步存储数据到 CSV 文件"""
+    def write_to_csv():
+        with open(CSV_FILENAME, mode="a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), pos[0], pos[1],pos[2]])
+
+    thread = threading.Thread(target=write_to_csv)
+    thread.daemon = True  # 让线程在主程序退出时自动结束
+    thread.start()
+
 def predict_landing_point(vessel, body, dt=1.0, max_time=3000):
     """
     使用数值积分方法预测飞船的理论落点。
@@ -87,6 +105,40 @@ def set_roll_target(vessel, target_roll, kp=0.05, ki=0.01, kd=0.00, dt=0.1):
 set_roll_target.previous_error = 0
 set_roll_target.integral = 0
 
+################################# 角度计算类 
+def compute_angles(alpha, sigma):
+    """
+    计算向量 A 与 X、Y、Z 轴的夹角。
+    :param alpha: A 与 Y 轴的夹角（弧度制）
+    :param sigma: B 与 Z 轴的夹角（弧度制）
+    :return: (theta_X, theta_Y, theta_Z) 夹角（弧度制）
+    """
+    cos_theta_X = np.sin(alpha) * np.sin(sigma)
+    cos_theta_Y = np.cos(alpha)
+    cos_theta_Z = np.sin(alpha) * np.cos(sigma)
+    
+    theta_X = np.arccos(cos_theta_X)
+    theta_Y = np.arccos(cos_theta_Y)
+    theta_Z = np.arccos(cos_theta_Z)
+    
+    return theta_X, theta_Y, theta_Z
+
+
+def calculate_angles(alpha_deg, sigma_deg):
+    # 将角度转换为弧度
+    alpha = math.radians(alpha_deg)
+    sigma = math.radians(sigma_deg)
+    
+    # 计算夹角
+    theta_xoy = math.atan(math.tan(alpha) * math.sin(sigma))
+    theta_yoz = math.atan(math.tan(alpha) * math.cos(sigma))
+    
+    # 转换回角度
+    theta_xoy_deg = math.degrees(theta_xoy)
+    theta_yoz_deg = math.degrees(theta_yoz)
+    
+    return theta_xoy_deg, theta_yoz_deg
+
 
 
 def predictor_corrector_control(conn, vessel, body, target_location, time_step=0.1, max_iterations=1000):
@@ -100,12 +152,20 @@ def predictor_corrector_control(conn, vessel, body, target_location, time_step=0
     sigma = 0  # 初始侧倾角
     target_lat, target_lon = target_location
     
+    Z_last = 1
+
     while vessel.flight().surface_altitude > 10000:
         current_g = vessel.flight().g_force
         lat = vessel.flight().latitude
         lon = vessel.flight().longitude
         V = vessel.flight().true_air_speed
         V_e = vessel.orbit.speed
+
+        ## 飞船升力 阻力 
+        LL = vessel.flight().lift
+        DD = vessel.flight().drag
+
+        
         
         S_remaining = calculate_distance(body, lat, lon, target_lat, target_lon)
         # S_remaining = calculate_landing_error(vessel, body, target_lat, target_lon)
@@ -124,8 +184,15 @@ def predictor_corrector_control(conn, vessel, body, target_location, time_step=0
             sigma_sign = -1 if (Z + K5 * Z_dot) > 0 else 1
         else:
             sigma_sign = 1 if sigma >= 0 else -1
+
+
+        # 变号换方向
+        if Z * Z_last < 0:
+            sigma_sign = -sigma_sign
+
+        Z_last = Z
         
-        sigma_size = 30 * (math.exp(- S_remaining / 40_000))
+        sigma_size = 25 * (1-math.exp(- S_remaining / 40_000))
         sigma = sigma_size * sigma_sign
         
         if current_g > 5.0:
@@ -133,44 +200,33 @@ def predictor_corrector_control(conn, vessel, body, target_location, time_step=0
 
 
         # 限制侧倾角的范围
-        sigma = max(min(sigma, 30), -30)
+        sigma = max(min(sigma, 20), -20)
 
         if S_remaining > 200_000:
             sigma = 0
-        
-        # vessel.control.roll = sigma / 90
-
-        # vessel.control.roll = 0.2
-        # vessel.control.pitch = 1
-
-
-        # 计算 Pitch 角（调整攻角）
-        # target_pitch = 40 - (S_remaining / 100000) * 30
-        # target_pitch = max(min(target_pitch, 35), 20)
 
         # target_pitch = 30
         # target_roll  = 0
         # target_yaw   = 270
 
-        # set_pitch_target(vessel, target_pitch)  # 设定 Pitch
         # set_roll_target(vessel, target_roll)  # 设定 roll
-        # # set_yaw_target(vessel, target_yaw)
+
 
         if S_remaining > 50_000:
             target_pitch = 27
         else:
-            target_pitch = 22
+            target_pitch = 23
 
 
-        vessel.auto_pilot.target_pitch = target_pitch  # 设定目标偏航角
-        # vessel.auto_pilot.target_roll = sigma  # 设定目标偏航角
+        op_sigma,op_pitch = calculate_angles(target_pitch,sigma)
 
-        # set_roll_target(vessel, sigma + 30)  # 设定 roll
-        if sigma >= 0:
-            set_roll_target(vessel, -sigma - 30)  # 设定 roll
-        else:
-            set_roll_target(vessel, -sigma + 30)
-        vessel.auto_pilot.target_heading = 270 - 0.5*sigma  # 设定目标偏航角
+
+        # vessel.auto_pilot.target_pitch = target_pitch  # 设定目标偏航角
+        # vessel.auto_pilot.target_heading = 270 - 0.5*sigma  # 设定目标偏航角
+
+
+        vessel.auto_pilot.target_pitch = op_pitch  # 设定目标偏航角
+        vessel.auto_pilot.target_heading = 270 - op_sigma  # 设定目标偏航角
         
         
 
@@ -182,35 +238,44 @@ def predictor_corrector_control(conn, vessel, body, target_location, time_step=0
         
         time.sleep(1 / 10)
 
-        if S_remaining < 15_000:
+        ##### 数据存储
+        position = vessel.position(body.reference_frame)
+        save_data_async(position)
+
+        if S_remaining < 10_000 or vessel.flight().surface_altitude < 20_000:
             vessel.auto_pilot.disengage()  # 关闭自动驾驶
             break
     
     return trajectory
 
 
+def main():
+    # 连接 KRPC
+    conn = krpc.connect(name="Custom Coordinate System (Centered at Planet Core)")
+    vessel = conn.space_center.active_vessel
+    body = vessel.orbit.body
+    # 设定目标地点 (坎巴拉太空中心)
 
-# 连接 KRPC
-conn = krpc.connect(name="Custom Coordinate System (Centered at Planet Core)")
-vessel = conn.space_center.active_vessel
-body = vessel.orbit.body
-# 设定目标地点 (坎巴拉太空中心)
+    vessel.auto_pilot.engage()  # 启动自动驾驶
+    target_location = (-0.0972, -74.5577)  # KSC 纬度, 经度
+    trajectory_data = predictor_corrector_control(conn, vessel, body, target_location)
 
-vessel.auto_pilot.engage()  # 启动自动驾驶
-target_location = (0.0972, -74.5577)  # KSC 纬度, 经度
-trajectory_data = predictor_corrector_control(conn, vessel, body, target_location)
+    print("制导完成，进入降落伞阶段")
 
-print("制导完成，进入降落伞阶段")
+    while True:
+        if vessel.flight().surface_altitude < 10_000:
+            vessel.control.activate_next_stage()
+        time.sleep(1)  # 等待降落伞部署
+        if vessel.flight().surface_altitude < 100:
+            lat = vessel.flight().latitude
+            lon = vessel.flight().longitude
+            
+            S_remaining = calculate_distance(body, lat, lon, 0.0972, -74.5577)
 
-while True:
-    if vessel.flight().surface_altitude < 10_000:
-        vessel.control.activate_next_stage()
-    time.sleep(1)  # 等待降落伞部署
-    if vessel.flight().surface_altitude < 100:
-        lat = vessel.flight().latitude
-        lon = vessel.flight().longitude
-        
-        S_remaining = calculate_distance(body, lat, lon, 0.0972, -74.5577)
+            print(f"落点经度：{lat}°  落点纬度：{lon}° |距离目标点还有 {S_remaining/1000:.1f}km")
+            break
 
-        print(f"落点经度：{lat}°  落点纬度：{lon}° |距离目标点还有 {S_remaining/1000:.1f}km")
-        break
+
+if __name__ == "__main__":
+
+    main()

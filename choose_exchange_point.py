@@ -41,7 +41,8 @@ def equations(t, y):
 
     # 径向加速度
     drdt = vr
-    dvrdt = a_grav_r + a_drag_r + a_lift_r + a_centrifugal_r + vtheta**2 / r + a_coriolis_r
+    # dvrdt = a_grav_r + a_drag_r + a_lift_r + a_centrifugal_r + vtheta**2 / r + a_coriolis_r
+    dvrdt = a_grav_r + a_drag_r + a_lift_r + a_centrifugal_r + vtheta**2 / r 
 
     # 角速度变化率
     dthetadt = vtheta / r
